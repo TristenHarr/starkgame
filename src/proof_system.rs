@@ -234,14 +234,18 @@ async fn generate_proof_async(trace: &MovementTrace) -> Result<(Vec<u8>, usize),
     // Generate trace matrix
     let trace_matrix = generate_movement_trace_matrix::<Val>(trace, target_height);
     
-    // CRITICAL: Plonky3 completely disables constraint checking in release mode for performance!
-    // We now force the REAL Plonky3 constraint checker to run even in release mode.
-    println!("🔥 FORCING PLONKY3 CONSTRAINT CHECKER (normally disabled in release mode)");
+    // Optional constraint checking for debugging trace determinism
+    #[cfg(feature = "constraint-checking")]
+    {
+        println!("🔥 RUNNING CONSTRAINT CHECK (diagnostic mode enabled)");
+        crate::check_constraints::check_movement_constraints(&air, &trace_matrix)?;
+        println!("✅ CONSTRAINT CHECK PASSED - trace is consistent");
+    }
     
-    // Use the REAL Plonky3 constraint checker (we made it public)
-    use p3_uni_stark::check_constraints;
-    check_constraints(&air, &trace_matrix, &vec![]);
-    println!("✅ PLONKY3 CONSTRAINT CHECK PASSED - no violations detected");
+    #[cfg(not(feature = "constraint-checking"))]
+    {
+        println!("🚀 SKIPPING CONSTRAINT CHECK (diagnostic mode disabled)");
+    }
 
     // Generate proof (this is the heavy computation that runs on background thread)
     println!("🔥 ABOUT TO CALL PROVE() - trace matrix has {} rows", trace_matrix.height());

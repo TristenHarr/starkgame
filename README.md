@@ -32,8 +32,8 @@ A 2D Bevy game that uses Plonky3 zk-STARK proofs to cryptographically verify pla
 The `MovementAir` defines what constitutes valid movement:
 
 1. **Boolean Inputs**: Direction flags must be 0 or 1
-2. **Velocity Consistency**: Speed must match input × 200 pixels/second  
-3. **Position Continuity**: Position changes must match velocity × time
+2. **Velocity Consistency**: Speed must match input ï¿½ 200 pixels/second  
+3. **Position Continuity**: Position changes must match velocity ï¿½ time
 4. **No Teleportation**: Instant position jumps are mathematically impossible
 
 ### Deterministic Physics
@@ -47,9 +47,7 @@ position.x += delta_x;
 
 ### Trace Determinism Fix
 
-We modified Plonky3's source code to access `check_constraints` as a diagnostic tool:
-- Changed `pub(crate) fn check_constraints` to `pub fn check_constraints`
-- Used it to debug non-deterministic traces between debug/release builds
+We implemented our own constraint checking function that replicates the `MovementAir` constraints exactly. This allows us to debug non-deterministic traces between debug/release builds without modifying Plonky3's source code.
 
 ## How Cheating Gets Caught
 
@@ -64,14 +62,19 @@ The security comes from the mathematical properties of zk-STARKs, not from const
 ## Building
 
 ```bash
-cargo run          # Debug mode
-cargo run --release # Release mode
+# Normal mode (no constraint checking)
+cargo run
+cargo run --release
+
+# With constraint checking (for debugging trace determinism)
+cargo run --features constraint-checking
+cargo run --release --features constraint-checking
 ```
 
 ## Dependencies
 
 - **Bevy 0.15**: Game engine
-- **Plonky3**: zk-STARK proof system (locally modified)
+- **Plonky3**: zk-STARK proof system
 - **Standard crates**: rand, serde, bincode, futures-lite
 
 ---

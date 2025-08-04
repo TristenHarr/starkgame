@@ -4,6 +4,7 @@ mod movement_trace;
 mod movement_air;
 mod proof_system;
 mod fps_display;
+mod check_constraints;
 
 use movement_trace::*;
 use proof_system::*;
