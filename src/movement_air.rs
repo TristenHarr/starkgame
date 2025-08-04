@@ -74,18 +74,15 @@ impl<AB: AirBuilder> Air<AB> for MovementAir {
         let expected_next_x = local.position_x.clone() + actual_next_vel_x * AB::Expr::from(physics_factor);
         let expected_next_y = local.position_y.clone() + actual_next_vel_y * AB::Expr::from(physics_factor);
         
+        println!("🔄 TRANSITION: Checking position continuity with physics_factor=15");
+        
         // These must match exactly - any deviation (including teleportation) will fail
         when_transition.assert_eq(next.position_x.clone(), expected_next_x);
         when_transition.assert_eq(next.position_y.clone(), expected_next_y);
 
-        // Constraint 4: Boundary validation 
-        // Ensure positions stay within game bounds (simplified to prevent overflow)
-        let max_pos = AB::F::from_u64(500); // Max position bound  
-        
-        // Position should be reasonable (not too large)
-        // This prevents positions from growing unbounded and causing field overflow
-        let _pos_x_bounded = local.position_x.clone() * (local.position_x.clone() - AB::Expr::from(max_pos));
-        let _pos_y_bounded = local.position_y.clone() * (local.position_y.clone() - AB::Expr::from(max_pos));
+        // Constraint 4: Boundary validation removed
+        // The unused polynomial calculations were causing OodEvaluationMismatch errors
+        // between debug and release builds due to different compiler optimizations
         
     }
 }
@@ -145,13 +142,18 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
         let vel_x_scaled = step.velocity.x as i64; // Keep velocities as integers
         let vel_y_scaled = step.velocity.y as i64;
         
-        let encoded_pos_x = ((pos_x_scaled + 500000) as u64) % 1000000;
-        let encoded_pos_y = ((pos_y_scaled + 500000) as u64) % 1000000;
+        // Expand encoding range to support much larger game boundaries
+        // BabyBear field can hold ~2 billion, so we can safely use 100M range (±50k pixels)
+        let encoded_pos_x = ((pos_x_scaled + 50000000) as u64) % 100000000;
+        let encoded_pos_y = ((pos_y_scaled + 50000000) as u64) % 100000000;
         let encoded_vel_x = ((vel_x_scaled + 1000) as u64) % 2000;
         let encoded_vel_y = ((vel_y_scaled + 1000) as u64) % 2000;
         
-        // Debug ALL rows - need to see what's different in release mode
-        if i < 10 || (encoded_vel_x != 1000 || encoded_vel_y != 1000) {
+        // Enhanced debug logging - show ALL rows and check for problematic values  
+        let is_interesting = i < 10 || (encoded_vel_x != 1000 || encoded_vel_y != 1000) || 
+                           pos_x_scaled.abs() > 10000000 || pos_y_scaled.abs() > 10000000 ||
+                           encoded_pos_x > 90000000 || encoded_pos_y > 90000000;
+        if is_interesting {
             let dt = step.delta_time;
             let _expected_pos_change_x = step.velocity.x * dt * 1000.0;
             let _expected_pos_change_y = step.velocity.y * dt * 1000.0;
@@ -172,7 +174,14 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
             let vel_x_violation = if (encoded_vel_x as f32 - constraint_expected_vel_x as f32).abs() > 0.1 { "❌" } else { "✅" };
             let vel_y_violation = if (encoded_vel_y as f32 - constraint_expected_vel_y as f32).abs() > 0.1 { "❌" } else { "✅" };
             
-            println!("🔍 MATRIX Row {}: pos=({:.1},{:.1}) vel=({:.1},{:.1}→{},{}) inputs=({},{},{},{}) expected_vel=({:.1},{:.1}→{:.0},{:.0}) {} VEL_X {} VEL_Y{}", 
+            // Field overflow warning - now supports much larger positions
+            let overflow_warning = if pos_x_scaled.abs() > 10000000 || pos_y_scaled.abs() > 10000000 {
+                " ⚠️ LARGE_POSITION"
+            } else if encoded_pos_x > 90000000 || encoded_pos_y > 90000000 {
+                " ⚠️ ENCODING_OVERFLOW"
+            } else { "" };
+            
+            println!("🔍 MATRIX Row {}: pos=({:.1},{:.1}) vel=({:.1},{:.1}→{},{}) inputs=({},{},{},{}) expected_vel=({:.1},{:.1}→{:.0},{:.0}) {} VEL_X {} VEL_Y{}{}", 
                 i, step.position.x, step.position.y, 
                 step.velocity.x, step.velocity.y, encoded_vel_x, encoded_vel_y,
                 if step.inputs.left { 1 } else { 0 },
@@ -181,7 +190,7 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
                 if step.inputs.down { 1 } else { 0 },
                 expected_vel_x_from_inputs, expected_vel_y_from_inputs,
                 constraint_expected_vel_x, constraint_expected_vel_y,
-                vel_x_violation, vel_y_violation, transition_info);
+                vel_x_violation, vel_y_violation, transition_info, overflow_warning);
         }
         
         rows[i] = MovementRow {
@@ -205,8 +214,8 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
         for i in trace.steps.len()..target_height {
             rows[i] = MovementRow {
                 // Keep last position with same encoding
-                position_x: F::from_u64(((last_pos_x_scaled + 500000) as u64) % 1000000),
-                position_y: F::from_u64(((last_pos_y_scaled + 500000) as u64) % 1000000),
+                position_x: F::from_u64(((last_pos_x_scaled + 50000000) as u64) % 100000000),
+                position_y: F::from_u64(((last_pos_y_scaled + 50000000) as u64) % 100000000),
                 // No movement in padding rows: velocity = 0 + offset = 1000
                 velocity_x: F::from_u64(1000), 
                 velocity_y: F::from_u64(1000),
