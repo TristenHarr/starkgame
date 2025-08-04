@@ -32,6 +32,15 @@ pub struct LastInputState {
     pub down: bool,
 }
 
+#[derive(Resource, Default)]
+pub struct CheatDetected {
+    pub message: String,
+    pub is_active: bool,
+}
+
+#[derive(Component)]
+pub struct CheatPopup;
+
 
 fn main() {
     App::new()
@@ -46,6 +55,7 @@ fn main() {
             ),
         })
         .init_resource::<ProofSystemSettings>()
+        .init_resource::<CheatDetected>()
         .add_systems(Startup, setup)
         .add_systems(Update, (
             (player_input, mouse_teleport_system, speed_control_system).chain(),
@@ -53,6 +63,9 @@ fn main() {
             movement_system,
             movement_trace_collection_system,
             (proof_generation_system, stats_logging_system),
+            cheat_detection_system,
+            cheat_popup_system,
+            dismiss_cheat_popup_system,
         ).chain())
         .run();
 }
@@ -241,6 +254,100 @@ fn speed_control_system(
             velocity.y *= speed_multiplier;
             info!("🔥 SPEED_CONTROL: {}x multiplier → velocity ({},{}) → ({},{})", 
                   speed_multiplier, pre_mult.0, pre_mult.1, velocity.x, velocity.y);
+        }
+    }
+}
+
+// System to detect cheating from proof verification failures
+fn cheat_detection_system(
+    query: Query<&ProofGenerator, With<Player>>,
+    mut cheat_detected: ResMut<CheatDetected>,
+) {
+    for proof_gen in &query {
+        // Check if we have any failed verifications that indicate cheating
+        if proof_gen.stats.failed_verifications > 0 && !cheat_detected.is_active {
+            cheat_detected.is_active = true;
+            cheat_detected.message = "CHEATER DETECTED!\nInvalid proof verification failed!\nPress ESC to continue".to_string();
+            warn!("🚨 CHEAT DETECTED - Activating popup");
+        }
+    }
+}
+
+// System to show the cheat popup
+fn cheat_popup_system(
+    mut commands: Commands,
+    cheat_detected: Res<CheatDetected>,
+    existing_popup: Query<Entity, With<CheatPopup>>,
+) {
+    if cheat_detected.is_active && existing_popup.is_empty() {
+        // Create the popup UI
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(25.0),
+                top: Val::Percent(25.0),
+                width: Val::Percent(50.0),
+                height: Val::Percent(50.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.8, 0.1, 0.1, 0.95)), // Red background
+            CheatPopup,
+        )).with_children(|parent| {
+            parent.spawn((
+                Text::new(&cheat_detected.message),
+                TextFont {
+                    font_size: 32.0,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                Node {
+                    align_self: AlignSelf::Center,
+                    ..default()
+                },
+            ));
+        });
+    }
+}
+
+// System to handle ESC key to dismiss the popup and reset game state
+fn dismiss_cheat_popup_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut cheat_detected: ResMut<CheatDetected>,
+    mut commands: Commands,
+    popup_query: Query<Entity, With<CheatPopup>>,
+    mut player_query: Query<(&mut Transform, &mut Position, &mut Velocity, &mut MovementTraceCollector, &mut ProofGenerator), With<Player>>,
+) {
+    if cheat_detected.is_active && keyboard_input.just_pressed(KeyCode::Escape) {
+        // Dismiss the popup
+        cheat_detected.is_active = false;
+        cheat_detected.message.clear();
+        
+        // Remove popup UI
+        for entity in &popup_query {
+            commands.entity(entity).despawn_recursive();
+        }
+        
+        // Reset game state
+        for (mut transform, mut position, mut velocity, mut trace_collector, mut proof_gen) in &mut player_query {
+            // Reset player to starting position
+            transform.translation = Vec3::new(0.0, 0.0, 0.0);
+            position.x = 0;
+            position.y = 0;
+            velocity.x = 0;
+            velocity.y = 0;
+            
+            // Clear trace and proof history
+            trace_collector.completed_traces.clear();
+            trace_collector.current_trace = None;
+            
+            // Reset proof generator stats
+            proof_gen.active_tasks.clear();
+            proof_gen.completed_count = 0;
+            proof_gen.stats = ProofStats::default();
+            
+            info!("🔄 GAME STATE RESET - Player returned to origin, traces cleared");
         }
     }
 }

@@ -128,6 +128,7 @@ impl Default for ProofGenerator {
 pub fn proof_generation_system(
     time: Res<Time>,
     mut query: Query<(&mut MovementTraceCollector, &mut ProofGenerator), With<Player>>,
+    mut commands: Commands,
 ) {
     let _current_time = time.elapsed_secs_f64();
 
@@ -181,7 +182,16 @@ pub fn proof_generation_system(
                         proof_gen.completed_count += 1;
                     }
                     Err(e) => {
-                        error!("❌ Async proof generation failed: {}", e);
+                        if e.starts_with("CHEAT_DETECTED:") {
+                            error!("🚨 CHEAT DETECTED: {}", e);
+                            // Trigger cheat detection UI by inserting resource
+                            commands.insert_resource(crate::CheatDetected {
+                                message: "CHEATER DETECTED!\nInvalid proof verification failed!\nPress ESC to continue".to_string(),
+                                is_active: true,
+                            });
+                        } else {
+                            error!("❌ Async proof generation failed: {}", e);
+                        }
                         proof_gen.stats.failed_verifications += 1;
                     }
                 }
@@ -205,8 +215,22 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
 
     // Generate proof (this is the heavy computation that runs on background thread)
     println!("🔥 ABOUT TO CALL PROVE() - trace matrix has {} rows", trace_matrix.height());
-    let proof = prove(&config, &air, trace_matrix, &vec![]);
-    println!("✅ PROVE() SUCCEEDED - proof generated without constraint failures");
+    
+    // Catch panics during proving (constraint violations cause panics)
+    let proof_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prove(&config, &air, trace_matrix, &vec![])
+    }));
+    
+    let proof = match proof_result {
+        Ok(proof) => {
+            println!("✅ PROVE() SUCCEEDED - proof generated without constraint failures");
+            proof
+        }
+        Err(panic_info) => {
+            println!("❌ PROVE() FAILED - constraint violation detected during proving");
+            return (Err("CHEAT_DETECTED: Constraint violation during proof generation".to_string()), 0.0);
+        }
+    };
     
     // Serialize proof to get size
     let proof_bytes = match bincode::serialize(&proof) {
@@ -228,13 +252,13 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
                 }
                 Err(e) => {
                     println!("❌ PROOF VERIFICATION FAILED - proof is invalid: {:?}", e);
-                    panic!("🚨 PROOF VERIFICATION FAILED! 🚨 Invalid proof detected: {:?} - GAME TERMINATED", e);
+                    Err(format!("CHEAT_DETECTED: Invalid proof: {:?}", e))
                 }
             }
         }
         Err(e) => {
             println!("❌ PROOF DESERIALIZATION FAILED: {:?}", e);
-            panic!("🚨 PROOF DESERIALIZATION FAILED! 🚨 Corrupted proof: {:?} - GAME TERMINATED", e);
+            Err(format!("CHEAT_DETECTED: Corrupted proof: {:?}", e))
         }
     };
     let verification_time = verification_start.elapsed().as_millis() as f64;
