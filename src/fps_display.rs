@@ -164,9 +164,10 @@ fn update_proof_stats_display(
             let generated_count = proof_gen.stats.total_proofs_generated;
             let avg_time = proof_gen.stats.avg_generation_time();
             
+            let avg_verification_time = proof_gen.stats.avg_verification_time();
             **text = format!(
-                "Proofs: Active: {}, Generated: {}, Avg: {:.1}ms", 
-                active_count, generated_count, avg_time
+                "Proofs: Active: {}, Generated: {}, Avg Gen: {:.1}ms, Avg Verify: {:.1}ms", 
+                active_count, generated_count, avg_time, avg_verification_time
             );
             
             // Color-code based on activity

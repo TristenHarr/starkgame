@@ -5,8 +5,8 @@ A 2D Bevy game that uses Plonky3 zk-STARK proofs to cryptographically verify pla
 ## What It Does
 
 - **2D Movement Game**: Arrow keys/WASD to move a blue square around
-- **Cryptographic Proofs**: Every movement trace generates a zk-STARK proof
-- **Anti-Cheat Testing**: Built-in cheats (teleport, speed hack) that get caught by the proof system
+- **Cryptographic Proofs**: Every movement trace generates a zk-STARK proof with verification
+- **Anti-Cheat Detection**: Built-in cheats (teleport, speed hack) that get caught by proof verification
 - **Real-time Stats**: Shows FPS, proof generation status, and player velocity
 
 ## Controls
@@ -22,7 +22,7 @@ A 2D Bevy game that uses Plonky3 zk-STARK proofs to cryptographically verify pla
 - **`main.rs`** - Game setup, movement physics, input handling, cheat systems
 - **`movement_trace.rs`** - Collects movement data into 1-second traces
 - **`movement_air.rs`** - Defines the mathematical constraints for valid movement
-- **`proof_system.rs`** - Generates zk-STARK proofs from movement traces
+- **`proof_system.rs`** - Generates and verifies zk-STARK proofs from movement traces
 - **`fps_display.rs`** - UI for stats and performance monitoring
 
 ## Key Implementation
@@ -32,8 +32,8 @@ A 2D Bevy game that uses Plonky3 zk-STARK proofs to cryptographically verify pla
 The `MovementAir` defines what constitutes valid movement:
 
 1. **Boolean Inputs**: Direction flags must be 0 or 1
-2. **Velocity Consistency**: Speed must match input � 200 pixels/second  
-3. **Position Continuity**: Position changes must match velocity � time
+2. **Velocity Consistency**: Speed must match input × 200 pixels/second  
+3. **Position Continuity**: Position changes must match velocity × time
 4. **No Teleportation**: Instant position jumps are mathematically impossible
 
 ### Deterministic Physics
@@ -45,33 +45,29 @@ let delta_x = (velocity.x * 15) / 1000;  // Fixed timestep
 position.x += delta_x;
 ```
 
-### Trace Determinism Fix
+## How Anti-Cheat Works
 
-We implemented our own constraint checking function that replicates the `MovementAir` constraints exactly. This allows us to debug non-deterministic traces between debug/release builds without modifying Plonky3's source code.
+### Debug Mode
+- **Proof Generation**: Plonky3's `prove()` function checks constraints during generation
+- **Proof Verification**: Additional verification step catches any invalid proofs
+- **Result**: Cheating causes either proof generation failure or verification failure → Game crashes
 
-**Note on Plonky3 API**: Plonky3's `check_constraints` function is marked `pub(crate)` (internal to the crate), making it inaccessible to external users. This forces developers to either modify Plonky3's source code or reimplement constraint checking themselves. Making `check_constraints` public would be a simple one-word change (`pub(crate)` → `pub`) that would provide significant value for debugging trace determinism issues in real-world applications.
-
-## How Cheating Gets Caught
-
-1. **Cheater modifies game** (teleport, speed hack)
-2. **Invalid trace collected** (violates mathematical constraints)
-3. **Proof generation attempts** to create STARK proof
-4. **Mathematical inconsistency** results in either failure or invalid proof
-5. **Verifier rejects** the proof (if it even gets generated)
-
-The security comes from the mathematical properties of zk-STARKs, not from constraint checking during proof generation.
+### Release Mode  
+- **Proof Generation**: Plonky3 skips constraint checking for performance
+- **Proof Verification**: Critical verification step catches constraint violations
+- **Result**: Invalid traces generate proofs that fail verification → Game crashes
 
 ## Building
 
 ```bash
-# Normal mode (no constraint checking, debug mode works, release mode FAILS)
+# Debug mode - constraint checking during prove() + verification
 cargo run
-cargo run --release
 
-# With constraint checking (for debugging trace determinism)
-cargo run --features constraint-checking
-cargo run --release --features constraint-checking
+# Release mode - verification only (faster proof generation)
+cargo run --release
 ```
+
+Both modes provide complete anti-cheat protection through proof verification.
 
 ## Dependencies
 

@@ -19,27 +19,6 @@ pub struct InputFlags {
     pub down: bool,
 }
 
-impl InputFlags {
-    pub fn from_keyboard(keyboard: &Res<ButtonInput<KeyCode>>) -> Self {
-        Self {
-            left: keyboard.pressed(KeyCode::ArrowLeft) || keyboard.pressed(KeyCode::KeyA),
-            right: keyboard.pressed(KeyCode::ArrowRight) || keyboard.pressed(KeyCode::KeyD),
-            up: keyboard.pressed(KeyCode::ArrowUp) || keyboard.pressed(KeyCode::KeyW),
-            down: keyboard.pressed(KeyCode::ArrowDown) || keyboard.pressed(KeyCode::KeyS),
-        }
-    }
-
-    pub fn to_velocity(&self, speed: f32) -> Vec2 {
-        let mut velocity = Vec2::ZERO;
-        
-        if self.left { velocity.x -= speed; }
-        if self.right { velocity.x += speed; }
-        if self.up { velocity.y += speed; }
-        if self.down { velocity.y -= speed; }
-        
-        velocity
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct MovementTrace {
@@ -66,9 +45,6 @@ impl MovementTrace {
         self.duration >= target_duration
     }
 
-    pub fn len(&self) -> usize {
-        self.steps.len()
-    }
 }
 
 #[derive(Component, Default)]
@@ -129,9 +105,6 @@ impl MovementTraceCollector {
         self.completed_traces.pop_front()
     }
 
-    pub fn has_traces_to_prove(&self) -> bool {
-        !self.completed_traces.is_empty()
-    }
 }
 
 pub fn movement_trace_collection_system(
@@ -169,17 +142,3 @@ pub fn movement_trace_collection_system(
     }
 }
 
-#[derive(Resource)]
-pub struct TraceSettings {
-    pub trace_duration: f64,
-    pub max_completed_traces: usize,
-}
-
-impl Default for TraceSettings {
-    fn default() -> Self {
-        Self {
-            trace_duration: 1.0, // 1 second traces
-            max_completed_traces: 5,
-        }
-    }
-}

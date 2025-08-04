@@ -7,19 +7,11 @@ use crate::movement_trace::MovementTrace;
 // Number of columns in our AIR
 pub const NUM_MOVEMENT_COLS: usize = 8;
 
-pub struct MovementAir {
-    pub movement_speed: f32,
-    pub game_bounds: (f32, f32, f32, f32), // (min_x, max_x, min_y, max_y)
-    pub delta_time: f32,
-}
+pub struct MovementAir;
 
 impl MovementAir {
-    pub fn new(movement_speed: f32, game_bounds: (f32, f32, f32, f32), delta_time: f32) -> Self {
-        Self {
-            movement_speed,
-            game_bounds,
-            delta_time,
-        }
+    pub fn new(_movement_speed: f32, _game_bounds: (f32, f32, f32, f32), _delta_time: f32) -> Self {
+        Self
     }
 }
 
@@ -92,12 +84,9 @@ impl<AB: AirBuilder> Air<AB> for MovementAir {
         
         // Position should be reasonable (not too large)
         // This prevents positions from growing unbounded and causing field overflow
-        let pos_x_bounded = local.position_x.clone() * (local.position_x.clone() - AB::Expr::from(max_pos));
-        let pos_y_bounded = local.position_y.clone() * (local.position_y.clone() - AB::Expr::from(max_pos));
+        let _pos_x_bounded = local.position_x.clone() * (local.position_x.clone() - AB::Expr::from(max_pos));
+        let _pos_y_bounded = local.position_y.clone() * (local.position_y.clone() - AB::Expr::from(max_pos));
         
-        // For now, comment these to avoid complexity, but these would be needed for real bounds
-        // builder.assert_zero(pos_x_bounded);
-        // builder.assert_zero(pos_y_bounded);
     }
 }
 
@@ -164,8 +153,8 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
         // Debug ALL rows - need to see what's different in release mode
         if i < 10 || (encoded_vel_x != 1000 || encoded_vel_y != 1000) {
             let dt = step.delta_time;
-            let expected_pos_change_x = step.velocity.x * dt * 1000.0;
-            let expected_pos_change_y = step.velocity.y * dt * 1000.0;
+            let _expected_pos_change_x = step.velocity.x * dt * 1000.0;
+            let _expected_pos_change_y = step.velocity.y * dt * 1000.0;
             
             // Calculate what the constraint expects from inputs
             let expected_vel_x_from_inputs = (if step.inputs.right { 1.0 } else { 0.0 } - if step.inputs.left { 1.0 } else { 0.0 }) * 200.0;

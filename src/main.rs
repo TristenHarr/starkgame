@@ -4,7 +4,6 @@ mod movement_trace;
 mod movement_air;
 mod proof_system;
 mod fps_display;
-mod check_constraints;
 
 use movement_trace::*;
 use proof_system::*;
@@ -46,7 +45,6 @@ fn main() {
                 std::time::Duration::from_nanos(16_666_667)
             ),
         })
-        .init_resource::<TraceSettings>()
         .init_resource::<ProofSystemSettings>()
         .add_systems(Startup, setup)
         .add_systems(Update, (
@@ -73,7 +71,7 @@ fn setup(mut commands: Commands) {
         Position { x: 0, y: 0 },
         Velocity { x: 0, y: 0 },
         LastInputState::default(),
-        MovementTraceCollector::new(1.0, 5), // 1 second traces, keep 5 max
+        MovementTraceCollector::new(0.1, 5), // 0.1 second traces, keep 5 max
         ProofGenerator::default(),
     ));
 }
