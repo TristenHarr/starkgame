@@ -49,6 +49,8 @@ position.x += delta_x;
 
 We implemented our own constraint checking function that replicates the `MovementAir` constraints exactly. This allows us to debug non-deterministic traces between debug/release builds without modifying Plonky3's source code.
 
+**Note on Plonky3 API**: Plonky3's `check_constraints` function is marked `pub(crate)` (internal to the crate), making it inaccessible to external users. This forces developers to either modify Plonky3's source code or reimplement constraint checking themselves. Making `check_constraints` public would be a simple one-word change (`pub(crate)` → `pub`) that would provide significant value for debugging trace determinism issues in real-world applications.
+
 ## How Cheating Gets Caught
 
 1. **Cheater modifies game** (teleport, speed hack)
@@ -62,7 +64,7 @@ The security comes from the mathematical properties of zk-STARKs, not from const
 ## Building
 
 ```bash
-# Normal mode (no constraint checking)
+# Normal mode (no constraint checking, debug mode works, release mode FAILS)
 cargo run
 cargo run --release
 
