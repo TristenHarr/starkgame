@@ -149,6 +149,14 @@ cargo run --release
 - **CheatDetected State**: Game paused, only cheat popup and reset systems active
 - **Race Condition Prevention**: State machine prevents exploitation during transitions
 
+### Quantum Resistance
+STARK proofs provide **post-quantum security** through several key properties:
+
+- **Hash-Based Security**: Relies on collision-resistant hash functions (Poseidon2) rather than discrete logarithm problems
+- **No Trapdoors**: Unlike RSA/ECC systems, STARKs have no secret parameters that quantum computers could exploit
+- **Information-Theoretic Foundation**: Security based on information theory rather than computational assumptions
+- **Future-Proof**: Remains secure even against theoretical quantum computer advances (Shor's algorithm, Grover's algorithm)
+
 ## 🔧 Dependencies
 
 ### Core
@@ -174,6 +182,7 @@ This system provides **mathematical guarantees** against cheating:
 - **⚡ Immediate Detection**: Cheating detected within 0.1 seconds through proof verification
 - **🛡️ Unforgeable**: Cannot generate valid proofs for invalid movements due to cryptographic properties
 - **🎲 Deterministic**: Integer math ensures consistent behavior across all platforms and build modes
+- **🔮 Quantum Resistant**: Unlike RSA/ECC-based systems, STARK proofs rely on collision-resistant hash functions and are secure against quantum computer attacks
 
 ## 🌟 Use Cases
 
