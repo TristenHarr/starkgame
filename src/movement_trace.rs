@@ -25,6 +25,7 @@ pub struct MovementTrace {
     pub steps: Vec<MovementStep>,
     pub start_time: f64,
     pub duration: f64,
+    pub is_first_trace_after_reset: bool, // Flag to mark first trace after game reset
 }
 
 impl MovementTrace {
@@ -33,6 +34,16 @@ impl MovementTrace {
             steps: Vec::new(),
             start_time,
             duration: 0.0,
+            is_first_trace_after_reset: false,
+        }
+    }
+    
+    pub fn new_first_after_reset(start_time: f64) -> Self {
+        Self {
+            steps: Vec::new(),
+            start_time,
+            duration: 0.0,
+            is_first_trace_after_reset: true,
         }
     }
 
@@ -53,6 +64,7 @@ pub struct MovementTraceCollector {
     pub completed_traces: VecDeque<MovementTrace>,
     pub trace_duration: f64,
     pub max_completed_traces: usize,
+    pub next_trace_is_first_after_reset: bool, // Flag to mark next trace as first after reset
 }
 
 impl MovementTraceCollector {
@@ -62,11 +74,21 @@ impl MovementTraceCollector {
             completed_traces: VecDeque::new(),
             trace_duration,
             max_completed_traces,
+            next_trace_is_first_after_reset: true, // First trace after startup is also first after reset
         }
     }
 
     pub fn start_new_trace(&mut self, timestamp: f64) {
-        self.current_trace = Some(MovementTrace::new(timestamp));
+        if self.next_trace_is_first_after_reset {
+            self.current_trace = Some(MovementTrace::new_first_after_reset(timestamp));
+            self.next_trace_is_first_after_reset = false;
+        } else {
+            self.current_trace = Some(MovementTrace::new(timestamp));
+        }
+    }
+    
+    pub fn mark_next_trace_as_first_after_reset(&mut self) {
+        self.next_trace_is_first_after_reset = true;
     }
 
     pub fn add_movement(&mut self, position: Vec2, velocity: Vec2, inputs: InputFlags, timestamp: f64) {
@@ -103,7 +125,6 @@ impl MovementTraceCollector {
                         delta_time: 0.016,
                     };
                     new_trace.add_step(continuation_step);
-                    warn!("🔄 TRACE_BOUNDARY: Starting new trace with continuation step at ({:.1},{:.1})", position.x, position.y);
                 }
             }
         }
@@ -119,15 +140,9 @@ impl MovementTraceCollector {
                 let distance = prev.position.distance(curr.position);
                 if distance > 50.0 {  // Definitely a teleport
                     has_teleport = true;
-                    warn!("🔍 COMPLETED TRACE CONTAINS TELEPORT: step {} → {} distance={:.1} from ({:.1},{:.1}) to ({:.1},{:.1})", 
-                          i-1, i, distance, prev.position.x, prev.position.y, curr.position.x, curr.position.y);
                 }
             }
             
-            if has_teleport {
-                warn!("🚨 TRACE WITH TELEPORT QUEUED FOR PROVING: {} steps, duration={:.3}s", 
-                      trace.steps.len(), trace.duration);
-            }
             
             self.completed_traces.push_back(trace);
             
@@ -159,15 +174,6 @@ pub fn movement_trace_collection_system(
             down: input_state.down,
         };
 
-        // Log trace collection details
-        if velocity.x != 0 || velocity.y != 0 {
-            info!("📊 TRACE_COLLECTION: pos=({:.1},{:.1}) vel=({},{}) inputs=({},{},{},{}) → adding to trace", 
-                  position.x as f32, position.y as f32, velocity.x, velocity.y,
-                  if synchronized_inputs.left { 1 } else { 0 },
-                  if synchronized_inputs.right { 1 } else { 0 },
-                  if synchronized_inputs.up { 1 } else { 0 },
-                  if synchronized_inputs.down { 1 } else { 0 });
-        }
 
         // Add detailed position tracking
         let pos_vec = Vec2::new(position.x as f32, position.y as f32);
@@ -175,17 +181,6 @@ pub fn movement_trace_collection_system(
         
         collector.add_movement(pos_vec, vel_vec, synchronized_inputs, current_time);
         
-        // Log any position changes (especially large ones that might be teleports)
-        if let Some(trace) = &collector.current_trace {
-            if let Some(last_step) = trace.steps.last() {
-                let pos_change = pos_vec.distance(last_step.position);
-                if pos_change > 10.0 {  // More than normal movement
-                    warn!("📊 LARGE POSITION CHANGE DETECTED: {:.1} pixels from ({:.1},{:.1}) to ({:.1},{:.1}) vel=({},{}) - ADDED TO TRACE", 
-                          pos_change, last_step.position.x, last_step.position.y, 
-                          pos_vec.x, pos_vec.y, velocity.x, velocity.y);
-                }
-            }
-        }
     }
 }
 

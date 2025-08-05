@@ -143,11 +143,6 @@ pub fn proof_generation_system(
                     max_jump = max_jump.max(distance);
                 }
                 
-                if max_jump > 50.0 {
-                    warn!("🚀 PROVING TRACE WITH TELEPORT: {} steps, max_jump={:.1} pixels", trace.steps.len(), max_jump);
-                } else {
-                    info!("🚀 Starting async proof generation for trace with {} steps", trace.steps.len());
-                }
                 
                 // Start async proof generation task
                 let task_pool = AsyncComputeTaskPool::get();
@@ -181,8 +176,6 @@ pub fn proof_generation_system(
                 
                 match result.result {
                     Ok((_proof_bytes, proof_size)) => {
-                        info!("✅ Proof generated successfully in {:.2}ms, verified in {:.2}ms, size: {} bytes", 
-                              result.generation_time_ms, result.verification_time_ms, proof_size);
                         
                         // Update statistics
                         proof_gen.stats.total_proofs_generated += 1;
@@ -195,14 +188,10 @@ pub fn proof_generation_system(
                     Err(e) => {
                         if e.starts_with("CHEAT_DETECTED:") {
                             error!("🚨 CHEAT DETECTED: {}", e);
-                            // Trigger cheat detection UI by inserting resource
-                            commands.insert_resource(crate::CheatDetected {
-                                message: "CHEATER DETECTED!\nInvalid proof verification failed!\nPress ESC to continue".to_string(),
-                                is_active: true,
-                            });
                         } else {
                             error!("❌ Async proof generation failed: {}", e);
                         }
+                        // Increment failed verifications - cheat_detection_system will handle state transition
                         proof_gen.stats.failed_verifications += 1;
                     }
                 }
@@ -220,25 +209,15 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
     // Find appropriate trace height (next power of 2)
     let target_height = next_power_of_2(trace.steps.len().max(8));
     
-    // Generate trace matrix
-    let trace_matrix = generate_movement_trace_matrix::<Val>(trace, target_height);
-    
-
-    // Generate proof (this is the heavy computation that runs on background thread)
-    println!("🔥 ABOUT TO CALL PROVE() - trace matrix has {} rows", trace_matrix.height());
-    
-    // Catch panics during proving (constraint violations cause panics)
+    // Generate trace matrix and proof - catch panics from both operations
     let proof_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let trace_matrix = generate_movement_trace_matrix::<Val>(trace, target_height);
         prove(&config, &air, trace_matrix, &vec![])
     }));
     
     let proof = match proof_result {
-        Ok(proof) => {
-            println!("✅ PROVE() SUCCEEDED - proof generated without constraint failures");
-            proof
-        }
+        Ok(proof) => proof,
         Err(_panic_info) => {
-            println!("❌ PROVE() FAILED - constraint violation detected during proving");
             return (Err("CHEAT_DETECTED: Constraint violation during proof generation".to_string()), 0.0);
         }
     };
@@ -252,25 +231,15 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
     let proof_size = proof_bytes.len();
     
     // VERIFY THE PROOF - this is critical for anti-cheat!
-    println!("🔍 VERIFYING PROOF - checking mathematical validity...");
     let verification_start = Instant::now();
     let verification_result = match bincode::deserialize::<_>(&proof_bytes) {
         Ok(deserialized_proof) => {
             match verify(&config, &air, &deserialized_proof, &vec![]) {
-                Ok(_) => {
-                    println!("✅ PROOF VERIFICATION PASSED - proof is mathematically valid");
-                    Ok((proof_bytes, proof_size))
-                }
-                Err(e) => {
-                    println!("❌ PROOF VERIFICATION FAILED - proof is invalid: {:?}", e);
-                    Err(format!("CHEAT_DETECTED: Invalid proof: {:?}", e))
-                }
+                Ok(_) => Ok((proof_bytes, proof_size)),
+                Err(e) => Err(format!("CHEAT_DETECTED: Invalid proof: {:?}", e))
             }
         }
-        Err(e) => {
-            println!("❌ PROOF DESERIALIZATION FAILED: {:?}", e);
-            Err(format!("CHEAT_DETECTED: Corrupted proof: {:?}", e))
-        }
+        Err(e) => Err(format!("CHEAT_DETECTED: Corrupted proof: {:?}", e))
     };
     let verification_time = verification_start.elapsed().as_millis() as f64;
     
@@ -281,25 +250,8 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
 
 
 pub fn stats_logging_system(
-    time: Res<Time>,
-    query: Query<&ProofGenerator, With<Player>>,
+    _time: Res<Time>,
+    _query: Query<&ProofGenerator, With<Player>>,
 ) {
-    // Log stats every 5 seconds
-    if (time.elapsed_secs() % 5.0) < 0.1 {
-        for proof_gen in &query {
-            let stats = &proof_gen.stats;
-            if stats.total_proofs_generated > 0 || !proof_gen.active_tasks.is_empty() {
-                info!(
-                    "📊 Proof Stats - Active: {}, Generated: {}, Avg Gen: {:.1}ms, Avg Verify: {:.1}ms, Success: {:.1}%",
-                    proof_gen.active_tasks.len(),
-                    stats.total_proofs_generated,
-                    stats.avg_generation_time(),
-                    stats.avg_verification_time(),
-                    if stats.successful_verifications + stats.failed_verifications > 0 {
-                        stats.successful_verifications as f64 / (stats.successful_verifications + stats.failed_verifications) as f64 * 100.0
-                    } else { 0.0 }
-                );
-            }
-        }
-    }
+    // Stats logging disabled for cleaner output
 }

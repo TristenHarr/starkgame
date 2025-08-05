@@ -23,7 +23,6 @@ impl<F> BaseAir<F> for MovementAir {
 
 impl<AB: AirBuilder> Air<AB> for MovementAir {
     fn eval(&self, builder: &mut AB) {
-        println!("🔍 CONSTRAINT EVAL CALLED - checking constraints...");
         let main = builder.main();
         
         // Get current and next rows (for state transitions)
@@ -51,13 +50,8 @@ impl<AB: AirBuilder> Air<AB> for MovementAir {
         let expected_vel_y = (local.input_up.clone() - local.input_down.clone()) * AB::Expr::from(movement_speed) + AB::Expr::from(velocity_offset);
         
         // Velocity constraint - this should catch speed hacking
-        println!("🚨 ABOUT TO ASSERT: local.velocity_x = ? vs expected_vel_x = ?");
         builder.assert_eq(local.velocity_x.clone(), expected_vel_x);
-        println!("🚨 VELOCITY X CONSTRAINT PASSED");
-        
-        println!("🚨 ABOUT TO ASSERT: local.velocity_y = ? vs expected_vel_y = ?");
         builder.assert_eq(local.velocity_y.clone(), expected_vel_y);
-        println!("🚨 VELOCITY Y CONSTRAINT PASSED");
         
         // Constraint 3: Position continuity - prevents teleportation
         // Use the NEXT frame's velocity to validate the position change (original approach)
@@ -74,15 +68,14 @@ impl<AB: AirBuilder> Air<AB> for MovementAir {
         let expected_next_x = local.position_x.clone() + actual_next_vel_x * AB::Expr::from(physics_factor);
         let expected_next_y = local.position_y.clone() + actual_next_vel_y * AB::Expr::from(physics_factor);
         
-        println!("🔄 TRANSITION: Checking position continuity with physics_factor=15");
         
         // These must match exactly - any deviation (including teleportation) will fail
         when_transition.assert_eq(next.position_x.clone(), expected_next_x);
         when_transition.assert_eq(next.position_y.clone(), expected_next_y);
 
-        // Constraint 4: Boundary validation removed
-        // The unused polynomial calculations were causing OodEvaluationMismatch errors
-        // between debug and release builds due to different compiler optimizations
+        // Constraint 4: First trace after reset must start at origin (0,0) with velocity (0,0)  
+        // This is enforced by checking the first step in generate_movement_trace_matrix
+        // The constraint is already enforced during trace generation, not here to avoid complexity
         
     }
 }
@@ -133,6 +126,13 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
     for (i, step) in trace.steps.iter().enumerate() {
         if i >= target_height {
             break;
+        }
+        
+        // CRITICAL: Enforce that first trace after reset starts at origin
+        if trace.is_first_trace_after_reset && i == 0 {
+            if step.position.x != 0.0 || step.position.y != 0.0 || step.velocity.x != 0.0 || step.velocity.y != 0.0 {
+                panic!("First trace after reset must start at origin with zero velocity");
+            }
         }
 
         // Convert to fixed-point representation that matches AIR expectations
@@ -195,16 +195,6 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
                 " 🚨 TELEPORT_IN_TRACE"
             } else { "" };
             
-            println!("🔍 MATRIX Row {}: pos=({:.1},{:.1}) vel=({:.1},{:.1}→{},{}) inputs=({},{},{},{}) expected_vel=({:.1},{:.1}→{:.0},{:.0}) {} VEL_X {} VEL_Y{}{}{}", 
-                i, step.position.x, step.position.y, 
-                step.velocity.x, step.velocity.y, encoded_vel_x, encoded_vel_y,
-                if step.inputs.left { 1 } else { 0 },
-                if step.inputs.right { 1 } else { 0 },
-                if step.inputs.up { 1 } else { 0 },
-                if step.inputs.down { 1 } else { 0 },
-                expected_vel_x_from_inputs, expected_vel_y_from_inputs,
-                constraint_expected_vel_x, constraint_expected_vel_y,
-                vel_x_violation, vel_y_violation, transition_info, overflow_warning, teleport_warning);
         }
         
         rows[i] = MovementRow {
@@ -239,6 +229,38 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
                 input_down: F::ZERO,
             };
         }
+    }
+
+    matrix
+}
+
+// Helper function to generate a matrix that will intentionally fail constraint validation
+// This is used when we detect cheating during trace generation
+fn generate_cheat_detected_matrix<F: PrimeField64>(target_height: usize) -> RowMajorMatrix<F> {
+    
+    let mut matrix = RowMajorMatrix::new(
+        F::zero_vec(target_height * NUM_MOVEMENT_COLS),
+        NUM_MOVEMENT_COLS,
+    );
+
+    let (prefix, rows, suffix) = unsafe { matrix.values.align_to_mut::<MovementRow<F>>() };
+    assert!(prefix.is_empty(), "Alignment should match");
+    assert!(suffix.is_empty(), "Alignment should match");
+    assert_eq!(rows.len(), target_height);
+
+    // Generate a matrix that will definitely fail constraint validation
+    // Set invalid values that violate the velocity constraint
+    for i in 0..target_height {
+        rows[i] = MovementRow {
+            position_x: F::from_u64(50000000), // Encoded (0,0)
+            position_y: F::from_u64(50000000), // Encoded (0,0)
+            velocity_x: F::from_u64(9999),     // Invalid velocity that doesn't match inputs
+            velocity_y: F::from_u64(9999),     // Invalid velocity that doesn't match inputs
+            input_left: F::ZERO,
+            input_right: F::ZERO,
+            input_up: F::ZERO,
+            input_down: F::ZERO,
+        };
     }
 
     matrix

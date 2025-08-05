@@ -5,6 +5,13 @@ mod movement_air;
 mod proof_system;
 mod fps_display;
 
+#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum GameState {
+    #[default]
+    Playing,
+    CheatDetected,
+}
+
 use movement_trace::*;
 use proof_system::*;
 use fps_display::FpsDisplayPlugin;
@@ -54,18 +61,23 @@ fn main() {
                 std::time::Duration::from_nanos(16_666_667)
             ),
         })
+        .init_state::<GameState>()
         .init_resource::<ProofSystemSettings>()
         .init_resource::<CheatDetected>()
         .add_systems(Startup, setup)
         .add_systems(Update, (
-            (player_input, mouse_teleport_system, speed_control_system).chain(),
-            update_input_state_after_modifications,
-            movement_system,
-            movement_trace_collection_system,
-            (proof_generation_system, stats_logging_system),
+            // Input systems only run in Playing state
+            (player_input, mouse_teleport_system, speed_control_system).chain().run_if(in_state(GameState::Playing)),
+            update_input_state_after_modifications.run_if(in_state(GameState::Playing)),
+            // CRITICAL: Movement system ONLY runs in Playing state - no position updates during cheat state
+            movement_system.run_if(in_state(GameState::Playing)),
+            // CRITICAL: Trace collection ONLY runs in Playing state - stops immediately when cheat detected
+            movement_trace_collection_system.run_if(in_state(GameState::Playing)),
+            // CRITICAL: Proof generation ONLY runs in Playing state - no proofs generated during cheat state
+            (proof_generation_system, stats_logging_system).run_if(in_state(GameState::Playing)),
             cheat_detection_system,
-            cheat_popup_system,
-            dismiss_cheat_popup_system,
+            cheat_popup_system.run_if(in_state(GameState::CheatDetected)),
+            dismiss_cheat_popup_system.run_if(in_state(GameState::CheatDetected)),
         ).chain())
         .run();
 }
@@ -115,12 +127,6 @@ fn player_input(
             velocity.y = -200;
         }
 
-        if left || right || up || down {
-            info!("🎮 PLAYER_INPUT: keys=({},{},{},{}) → velocity=({},{})", 
-                  if left { 1 } else { 0 }, if right { 1 } else { 0 }, 
-                  if up { 1 } else { 0 }, if down { 1 } else { 0 },
-                  velocity.x, velocity.y);
-        }
     }
 }
 
@@ -157,15 +163,6 @@ fn update_input_state_after_modifications(
             input_state.up = false; // Down overrides up (matches player_input order)
         }
 
-        let new_state = (input_state.left, input_state.right, input_state.up, input_state.down);
-        if old_state != new_state {
-            info!("📝 INPUT_STATE_UPDATE: ({},{},{},{}) → ({},{},{},{}) [vel=({},{})]", 
-                  if old_state.0 { 1 } else { 0 }, if old_state.1 { 1 } else { 0 }, 
-                  if old_state.2 { 1 } else { 0 }, if old_state.3 { 1 } else { 0 },
-                  if new_state.0 { 1 } else { 0 }, if new_state.1 { 1 } else { 0 }, 
-                  if new_state.2 { 1 } else { 0 }, if new_state.3 { 1 } else { 0 },
-                  velocity.x, velocity.y);
-        }
     }
 }
 
@@ -205,17 +202,11 @@ fn mouse_teleport_system(
             if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
                 let world_pos = ray.origin.truncate(); // Convert Ray3d to Vec2
                 for (mut transform, mut position) in &mut player_query {
-                    let old_pos = (position.x, position.y);
-                    let distance = ((world_pos.x - transform.translation.x).powi(2) + (world_pos.y - transform.translation.y).powi(2)).sqrt();
-                    
                     // This is cheating! Instant teleportation should violate proof constraints
                     transform.translation.x = world_pos.x;
                     transform.translation.y = world_pos.y;
                     position.x = world_pos.x as i32;
                     position.y = world_pos.y as i32;
-                    
-                    warn!("🚨🚨🚨 TELEPORT EXECUTED: ({},{}) → ({},{}) distance={:.1} pixels 🚨🚨🚨", 
-                          old_pos.0, old_pos.1, position.x, position.y, distance);
                 }
             }
         }
@@ -233,9 +224,6 @@ fn speed_control_system(
         
         if keyboard_input.pressed(KeyCode::ShiftLeft) {
             speed_multiplier = 3; // Speed hack!
-            if velocity.x != 0 || velocity.y != 0 {
-                info!("🔥 CHEATING: Speed hack active (3x speed)");
-            }
         }
         
         if keyboard_input.pressed(KeyCode::Space) {
@@ -243,8 +231,6 @@ fn speed_control_system(
             if velocity.x != 0 || velocity.y != 0 {
                 velocity.x *= 2;
                 velocity.y *= 2;
-                info!("🔥 SPEED_CONTROL: SPACE pressed → velocity ({},{}) → ({},{})", 
-                      original_velocity.0, original_velocity.1, velocity.x, velocity.y);
             }
         }
         
@@ -256,23 +242,27 @@ fn speed_control_system(
             let pre_mult = (velocity.x, velocity.y);
             velocity.x *= speed_multiplier;
             velocity.y *= speed_multiplier;
-            info!("🔥 SPEED_CONTROL: {}x multiplier → velocity ({},{}) → ({},{})", 
-                  speed_multiplier, pre_mult.0, pre_mult.1, velocity.x, velocity.y);
         }
     }
 }
 
 // System to detect cheating from proof verification failures
 fn cheat_detection_system(
-    query: Query<&ProofGenerator, With<Player>>,
+    mut player_query: Query<(&mut MovementTraceCollector, &ProofGenerator), With<Player>>,
     mut cheat_detected: ResMut<CheatDetected>,
+    mut next_state: ResMut<NextState<GameState>>,
+    current_state: Res<State<GameState>>,
 ) {
-    for proof_gen in &query {
-        // Check if we have any failed verifications that indicate cheating
-        if proof_gen.stats.failed_verifications > 0 && !cheat_detected.is_active {
+    for (mut trace_collector, proof_gen) in &mut player_query {
+        // Simple detection: any failures indicate cheating
+        if proof_gen.stats.failed_verifications > 0 && !cheat_detected.is_active && *current_state.get() == GameState::Playing {
             cheat_detected.is_active = true;
             cheat_detected.message = "CHEATER DETECTED!\nInvalid proof verification failed!\nPress ESC to continue".to_string();
-            warn!("🚨 CHEAT DETECTED - Activating popup");
+            next_state.set(GameState::CheatDetected);
+            
+            // CRITICAL: Immediately terminate and clear all active traces when cheat detected
+            trace_collector.current_trace = None;
+            trace_collector.completed_traces.clear();
         }
     }
 }
@@ -322,12 +312,13 @@ fn dismiss_cheat_popup_system(
     mut commands: Commands,
     popup_query: Query<Entity, With<CheatPopup>>,
     mut player_query: Query<(&mut Transform, &mut Position, &mut Velocity, &mut MovementTraceCollector, &mut ProofGenerator), With<Player>>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
-    if cheat_detected.is_active && keyboard_input.just_pressed(KeyCode::Escape) {
-        // Dismiss the popup
+    if keyboard_input.just_pressed(KeyCode::Escape) && cheat_detected.is_active {
+        // Clear cheat state
         cheat_detected.is_active = false;
         cheat_detected.message.clear();
-        
+    
         // Remove popup UI
         for entity in &popup_query {
             commands.entity(entity).despawn_recursive();
@@ -345,13 +336,23 @@ fn dismiss_cheat_popup_system(
             // Clear trace and proof history
             trace_collector.completed_traces.clear();
             trace_collector.current_trace = None;
+            // CRITICAL: Mark next trace as first after reset to enforce origin constraint
+            trace_collector.mark_next_trace_as_first_after_reset();
             
             // Reset proof generator stats
             proof_gen.active_tasks.clear();
             proof_gen.completed_count = 0;
             proof_gen.stats = ProofStats::default();
-            
-            info!("🔄 GAME STATE RESET - Player returned to origin, traces cleared");
         }
+        
+        // CRITICAL: Reset failed_verifications BEFORE transitioning back to Playing state
+        // This prevents the same cheat from being processed again in the next frame
+        for (_, _, _, _, mut proof_gen) in &mut player_query {
+            proof_gen.stats.failed_verifications = 0;
+        }
+        
+        // CRITICAL: Transition back to Playing state happens NEXT frame
+        // This ensures input systems cannot run in the same frame as the reset
+        next_state.set(GameState::Playing);
     }
 }
