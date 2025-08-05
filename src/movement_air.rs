@@ -5,7 +5,7 @@ use p3_matrix::{Matrix, dense::RowMajorMatrix};
 use crate::movement_trace::MovementTrace;
 
 // Number of columns in our AIR
-pub const NUM_MOVEMENT_COLS: usize = 8;
+pub const NUM_MOVEMENT_COLS: usize = 9;
 
 pub struct MovementAir;
 
@@ -73,9 +73,26 @@ impl<AB: AirBuilder> Air<AB> for MovementAir {
         when_transition.assert_eq(next.position_x.clone(), expected_next_x);
         when_transition.assert_eq(next.position_y.clone(), expected_next_y);
 
-        // Constraint 4: First trace after reset must start at origin (0,0) with velocity (0,0)  
-        // This is enforced by checking the first step in generate_movement_trace_matrix
-        // The constraint is already enforced during trace generation, not here to avoid complexity
+        // Constraint 4: First trace after reset must start at origin (0,0) with velocity (0,0)
+        let origin_position = AB::F::from_u64(50000000); // Encoded (0,0) position
+        let origin_velocity = AB::F::from_u64(1000); // Encoded (0,0) velocity
+        
+        // If this is the first trace after reset, enforce origin constraints
+        let is_first = local.is_first_trace_after_reset.clone();
+        
+        // When is_first_trace_after_reset = 1, position must be (0,0) and velocity must be (0,0)
+        builder.assert_zero(
+            is_first.clone() * (local.position_x.clone() - AB::Expr::from(origin_position))
+        );
+        builder.assert_zero(
+            is_first.clone() * (local.position_y.clone() - AB::Expr::from(origin_position))
+        );
+        builder.assert_zero(
+            is_first.clone() * (local.velocity_x.clone() - AB::Expr::from(origin_velocity))
+        );
+        builder.assert_zero(
+            is_first * (local.velocity_y.clone() - AB::Expr::from(origin_velocity))
+        );
         
     }
 }
@@ -91,6 +108,7 @@ pub struct MovementRow<F> {
     pub input_right: F,
     pub input_up: F,
     pub input_down: F,
+    pub is_first_trace_after_reset: F, // 1 if this is first trace after reset, 0 otherwise
 }
 
 impl<F> Borrow<MovementRow<F>> for [F] {
@@ -128,12 +146,6 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
             break;
         }
         
-        // CRITICAL: Enforce that first trace after reset starts at origin
-        if trace.is_first_trace_after_reset && i == 0 {
-            if step.position.x != 0.0 || step.position.y != 0.0 || step.velocity.x != 0.0 || step.velocity.y != 0.0 {
-                panic!("First trace after reset must start at origin with zero velocity");
-            }
-        }
 
         // Convert to fixed-point representation that matches AIR expectations
         // Scale positions by 1000 for precision, handle negatives properly
@@ -206,6 +218,7 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
             input_right: if step.inputs.right { F::ONE } else { F::ZERO },
             input_up: if step.inputs.up { F::ONE } else { F::ZERO },
             input_down: if step.inputs.down { F::ONE } else { F::ZERO },
+            is_first_trace_after_reset: if trace.is_first_trace_after_reset && i == 0 { F::ONE } else { F::ZERO },
         };
     }
 
@@ -227,6 +240,7 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
                 input_right: F::ZERO,
                 input_up: F::ZERO,
                 input_down: F::ZERO,
+                is_first_trace_after_reset: F::ZERO, // Padding rows are never first after reset
             };
         }
     }
@@ -260,6 +274,7 @@ fn generate_cheat_detected_matrix<F: PrimeField64>(target_height: usize) -> RowM
             input_right: F::ZERO,
             input_up: F::ZERO,
             input_down: F::ZERO,
+            is_first_trace_after_reset: F::ZERO,
         };
     }
 
