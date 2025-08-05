@@ -10,34 +10,7 @@ struct FpsText;
 struct ProofStatsText;
 
 #[derive(Component)]
-struct FpsLimitText;
-
-#[derive(Component)]
 struct VelocityText;
-
-#[derive(Resource)]
-struct FpsControls {
-    current_limit: Option<f64>, // None = unlimited
-    available_limits: Vec<Option<f64>>,
-    current_index: usize,
-}
-
-impl Default for FpsControls {
-    fn default() -> Self {
-        Self {
-            current_limit: None, // Start with unlimited
-            available_limits: vec![
-                None,         // Unlimited
-                Some(240.0),  // Very high
-                Some(144.0),  // High refresh
-                Some(120.0),  // Gaming
-                Some(60.0),   // Standard
-                Some(30.0),   // Lower
-            ],
-            current_index: 0,
-        }
-    }
-}
 
 pub struct FpsDisplayPlugin;
 
@@ -48,13 +21,10 @@ impl Plugin for FpsDisplayPlugin {
                 focused_mode: bevy::winit::UpdateMode::Continuous,
                 unfocused_mode: bevy::winit::UpdateMode::Continuous,
             })
-            .init_resource::<FpsControls>()
             .add_systems(Startup, setup_fps_display)
             .add_systems(Update, (
                 update_fps_display, 
                 update_proof_stats_display,
-                handle_fps_controls,
-                update_fps_limit_display,
                 update_velocity_display,
             ));
     }
@@ -104,16 +74,6 @@ fn setup_fps_display(mut commands: Commands) {
                         ProofStatsText,
                     ));
 
-                    // FPS limit control text
-                    stats_parent.spawn((
-                        Text::new("FPS Limit: Unlimited (Press F to cycle)"),
-                        TextColor(Color::srgb(0.8, 1.0, 0.8)),
-                        TextFont {
-                            font_size: 14.0,
-                            ..default()
-                        },
-                        FpsLimitText,
-                    ));
                     
                     // Velocity display text
                     stats_parent.spawn((
@@ -167,7 +127,7 @@ fn update_proof_stats_display(
             let avg_verification_time = proof_gen.stats.avg_verification_time();
             **text = format!(
                 "Proofs: Active: {}, Generated: {}, Avg Gen: {:.1}ms, Avg Verify: {:.1}ms", 
-                active_count, generated_count, avg_time, avg_verification_time
+                active_count, generated_count, avg_time / 1_000_000.0, avg_verification_time / 1_000_000.0
             );
             
             // Color-code based on activity
@@ -180,48 +140,6 @@ fn update_proof_stats_display(
     }
 }
 
-fn handle_fps_controls(
-    mut fps_controls: ResMut<FpsControls>,
-    mut winit_settings: ResMut<WinitSettings>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-) {
-    if keyboard.just_pressed(KeyCode::KeyF) {
-        // Cycle to next FPS limit
-        fps_controls.current_index = (fps_controls.current_index + 1) % fps_controls.available_limits.len();
-        fps_controls.current_limit = fps_controls.available_limits[fps_controls.current_index];
-        
-        // Update Bevy's settings based on the limit
-        match fps_controls.current_limit {
-            None => {
-                // Unlimited FPS
-                winit_settings.focused_mode = bevy::winit::UpdateMode::Continuous;
-                winit_settings.unfocused_mode = bevy::winit::UpdateMode::Continuous;
-            },
-            Some(fps) => {
-                // Limited FPS
-                let target_frametime = std::time::Duration::from_secs_f64(1.0 / fps);
-                winit_settings.focused_mode = bevy::winit::UpdateMode::reactive_low_power(target_frametime);
-                winit_settings.unfocused_mode = bevy::winit::UpdateMode::reactive_low_power(target_frametime);
-            }
-        }
-        
-        info!("FPS limit changed to: {:?}", fps_controls.current_limit);
-    }
-}
-
-fn update_fps_limit_display(
-    fps_controls: Res<FpsControls>,
-    mut text_query: Query<&mut Text, With<FpsLimitText>>,
-) {
-    if let Ok(mut text) = text_query.get_single_mut() {
-        let limit_text = match fps_controls.current_limit {
-            None => "Unlimited".to_string(),
-            Some(fps) => format!("{:.0}", fps),
-        };
-        
-        **text = format!("FPS Limit: {} (Press F to cycle)", limit_text);
-    }
-}
 
 fn update_velocity_display(
     mut text_query: Query<&mut Text, With<VelocityText>>,

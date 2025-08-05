@@ -144,7 +144,7 @@ pub fn proof_generation_system(
                     
                     // Generate proof on background thread
                     let (result, verification_time) = generate_proof_async(&trace_clone).await;
-                    let generation_time = generation_start.elapsed().as_millis() as f64;
+                    let generation_time = generation_start.elapsed().as_nanos() as f64;
                     
                     ProofResult {
                         result,
@@ -231,7 +231,7 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
         }
         Err(e) => Err(format!("CHEAT_DETECTED: Corrupted proof: {:?}", e))
     };
-    let verification_time = verification_start.elapsed().as_millis() as f64;
+    let verification_time = verification_start.elapsed().as_nanos() as f64;
     
     (verification_result, verification_time)
 }

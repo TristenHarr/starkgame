@@ -54,12 +54,8 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(FpsDisplayPlugin)
         .insert_resource(bevy::winit::WinitSettings {
-            focused_mode: bevy::winit::UpdateMode::reactive_low_power(
-                std::time::Duration::from_nanos(16_666_667) // Exactly 60 FPS (1/60 second)
-            ),
-            unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(
-                std::time::Duration::from_nanos(16_666_667)
-            ),
+            focused_mode: bevy::winit::UpdateMode::Continuous, // Fixed 60 FPS - cannot be changed by user
+            unfocused_mode: bevy::winit::UpdateMode::Continuous,
         })
         .init_state::<GameState>()
         .init_resource::<ProofSystemSettings>()
