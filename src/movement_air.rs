@@ -60,9 +60,9 @@ impl<AB: AirBuilder> Air<AB> for MovementAir {
         println!("🚨 VELOCITY Y CONSTRAINT PASSED");
         
         // Constraint 3: Position continuity - prevents teleportation
+        // Use the NEXT frame's velocity to validate the position change (original approach)
         let mut when_transition = builder.when_transition();
         
-        // Always enforce position physics - no exceptions for teleportation
         // Use the NEXT frame's velocity to validate the position change that occurred
         let actual_next_vel_x = next.velocity_x.clone() - AB::Expr::from(velocity_offset);
         let actual_next_vel_y = next.velocity_y.clone() - AB::Expr::from(velocity_offset);
@@ -153,7 +153,17 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
         let is_interesting = i < 10 || (encoded_vel_x != 1000 || encoded_vel_y != 1000) || 
                            pos_x_scaled.abs() > 10000000 || pos_y_scaled.abs() > 10000000 ||
                            encoded_pos_x > 90000000 || encoded_pos_y > 90000000;
-        if is_interesting {
+                           
+        // Check for large position jumps that indicate teleportation
+        let has_large_jump = if i > 0 {
+            let prev_step = &trace.steps[i-1];
+            let curr_step = step;
+            let distance = ((curr_step.position.x - prev_step.position.x).powi(2) + 
+                           (curr_step.position.y - prev_step.position.y).powi(2)).sqrt();
+            distance > 50.0
+        } else { false };
+        
+        if is_interesting || has_large_jump {
             let dt = step.delta_time;
             let _expected_pos_change_x = step.velocity.x * dt * 1000.0;
             let _expected_pos_change_y = step.velocity.y * dt * 1000.0;
@@ -181,7 +191,11 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
                 " ⚠️ ENCODING_OVERFLOW"
             } else { "" };
             
-            println!("🔍 MATRIX Row {}: pos=({:.1},{:.1}) vel=({:.1},{:.1}→{},{}) inputs=({},{},{},{}) expected_vel=({:.1},{:.1}→{:.0},{:.0}) {} VEL_X {} VEL_Y{}{}", 
+            let teleport_warning = if has_large_jump {
+                " 🚨 TELEPORT_IN_TRACE"
+            } else { "" };
+            
+            println!("🔍 MATRIX Row {}: pos=({:.1},{:.1}) vel=({:.1},{:.1}→{},{}) inputs=({},{},{},{}) expected_vel=({:.1},{:.1}→{:.0},{:.0}) {} VEL_X {} VEL_Y{}{}{}", 
                 i, step.position.x, step.position.y, 
                 step.velocity.x, step.velocity.y, encoded_vel_x, encoded_vel_y,
                 if step.inputs.left { 1 } else { 0 },
@@ -190,7 +204,7 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
                 if step.inputs.down { 1 } else { 0 },
                 expected_vel_x_from_inputs, expected_vel_y_from_inputs,
                 constraint_expected_vel_x, constraint_expected_vel_y,
-                vel_x_violation, vel_y_violation, transition_info, overflow_warning);
+                vel_x_violation, vel_y_violation, transition_info, overflow_warning, teleport_warning);
         }
         
         rows[i] = MovementRow {

@@ -136,7 +136,18 @@ pub fn proof_generation_system(
         // Check for completed traces to prove and start async tasks
         while let Some(trace) = collector.get_next_trace_for_proving() {
             if trace.steps.len() > 1 {
-                info!("🚀 Starting async proof generation for trace with {} steps", trace.steps.len());
+                // Check if this trace contains teleportation
+                let mut max_jump: f32 = 0.0;
+                for i in 1..trace.steps.len() {
+                    let distance = trace.steps[i-1].position.distance(trace.steps[i].position);
+                    max_jump = max_jump.max(distance);
+                }
+                
+                if max_jump > 50.0 {
+                    warn!("🚀 PROVING TRACE WITH TELEPORT: {} steps, max_jump={:.1} pixels", trace.steps.len(), max_jump);
+                } else {
+                    info!("🚀 Starting async proof generation for trace with {} steps", trace.steps.len());
+                }
                 
                 // Start async proof generation task
                 let task_pool = AsyncComputeTaskPool::get();
@@ -226,7 +237,7 @@ async fn generate_proof_async(trace: &MovementTrace) -> (Result<(Vec<u8>, usize)
             println!("✅ PROVE() SUCCEEDED - proof generated without constraint failures");
             proof
         }
-        Err(panic_info) => {
+        Err(_panic_info) => {
             println!("❌ PROVE() FAILED - constraint violation detected during proving");
             return (Err("CHEAT_DETECTED: Constraint violation during proof generation".to_string()), 0.0);
         }

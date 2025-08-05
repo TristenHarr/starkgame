@@ -205,13 +205,17 @@ fn mouse_teleport_system(
             if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
                 let world_pos = ray.origin.truncate(); // Convert Ray3d to Vec2
                 for (mut transform, mut position) in &mut player_query {
+                    let old_pos = (position.x, position.y);
+                    let distance = ((world_pos.x - transform.translation.x).powi(2) + (world_pos.y - transform.translation.y).powi(2)).sqrt();
+                    
                     // This is cheating! Instant teleportation should violate proof constraints
                     transform.translation.x = world_pos.x;
                     transform.translation.y = world_pos.y;
                     position.x = world_pos.x as i32;
                     position.y = world_pos.y as i32;
                     
-                    info!("🔥 CHEATING: Teleported to ({:.1}, {:.1})", world_pos.x, world_pos.y);
+                    warn!("🚨🚨🚨 TELEPORT EXECUTED: ({},{}) → ({},{}) distance={:.1} pixels 🚨🚨🚨", 
+                          old_pos.0, old_pos.1, position.x, position.y, distance);
                 }
             }
         }

@@ -70,6 +70,7 @@ impl MovementTraceCollector {
     }
 
     pub fn add_movement(&mut self, position: Vec2, velocity: Vec2, inputs: InputFlags, timestamp: f64) {
+        // CRITICAL FIX: Always ensure we have a trace active, even if the previous one just completed
         if self.current_trace.is_none() {
             self.start_new_trace(timestamp);
         }
@@ -78,21 +79,56 @@ impl MovementTraceCollector {
             let step = MovementStep {
                 position,
                 velocity,
-                inputs,
+                inputs: inputs.clone(),
                 timestamp,
                 delta_time: 0.016, // Fixed for now
             };
             
             trace.add_step(step);
 
+            // CRITICAL FIX: If trace is complete, start a new one IMMEDIATELY with this same step
+            // This prevents any position changes from falling between trace boundaries
             if trace.is_complete(self.trace_duration) {
                 self.complete_current_trace();
+                
+                // Immediately start a new trace and add this step to it as well
+                // This ensures continuity - no position change can escape being traced
+                self.start_new_trace(timestamp);
+                if let Some(ref mut new_trace) = self.current_trace {
+                    let continuation_step = MovementStep {
+                        position,
+                        velocity,
+                        inputs,
+                        timestamp,
+                        delta_time: 0.016,
+                    };
+                    new_trace.add_step(continuation_step);
+                    warn!("🔄 TRACE_BOUNDARY: Starting new trace with continuation step at ({:.1},{:.1})", position.x, position.y);
+                }
             }
         }
     }
 
     pub fn complete_current_trace(&mut self) {
         if let Some(trace) = self.current_trace.take() {
+            // Check if this trace contains any large position jumps
+            let mut has_teleport = false;
+            for i in 1..trace.steps.len() {
+                let prev = &trace.steps[i-1];
+                let curr = &trace.steps[i];
+                let distance = prev.position.distance(curr.position);
+                if distance > 50.0 {  // Definitely a teleport
+                    has_teleport = true;
+                    warn!("🔍 COMPLETED TRACE CONTAINS TELEPORT: step {} → {} distance={:.1} from ({:.1},{:.1}) to ({:.1},{:.1})", 
+                          i-1, i, distance, prev.position.x, prev.position.y, curr.position.x, curr.position.y);
+                }
+            }
+            
+            if has_teleport {
+                warn!("🚨 TRACE WITH TELEPORT QUEUED FOR PROVING: {} steps, duration={:.3}s", 
+                      trace.steps.len(), trace.duration);
+            }
+            
             self.completed_traces.push_back(trace);
             
             while self.completed_traces.len() > self.max_completed_traces {
@@ -133,12 +169,23 @@ pub fn movement_trace_collection_system(
                   if synchronized_inputs.down { 1 } else { 0 });
         }
 
-        collector.add_movement(
-            Vec2::new(position.x as f32, position.y as f32),
-            Vec2::new(velocity.x as f32, velocity.y as f32),
-            synchronized_inputs,
-            current_time,
-        );
+        // Add detailed position tracking
+        let pos_vec = Vec2::new(position.x as f32, position.y as f32);
+        let vel_vec = Vec2::new(velocity.x as f32, velocity.y as f32);
+        
+        collector.add_movement(pos_vec, vel_vec, synchronized_inputs, current_time);
+        
+        // Log any position changes (especially large ones that might be teleports)
+        if let Some(trace) = &collector.current_trace {
+            if let Some(last_step) = trace.steps.last() {
+                let pos_change = pos_vec.distance(last_step.position);
+                if pos_change > 10.0 {  // More than normal movement
+                    warn!("📊 LARGE POSITION CHANGE DETECTED: {:.1} pixels from ({:.1},{:.1}) to ({:.1},{:.1}) vel=({},{}) - ADDED TO TRACE", 
+                          pos_change, last_step.position.x, last_step.position.y, 
+                          pos_vec.x, pos_vec.y, velocity.x, velocity.y);
+                }
+            }
+        }
     }
 }
 
