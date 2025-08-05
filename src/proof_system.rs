@@ -7,7 +7,6 @@ use p3_fri::{TwoAdicFriPcs, create_test_fri_params};
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
 use p3_uni_stark::{StarkConfig, prove, verify};
-use p3_matrix::Matrix;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use bevy::prelude::*;
@@ -128,7 +127,6 @@ impl Default for ProofGenerator {
 pub fn proof_generation_system(
     time: Res<Time>,
     mut query: Query<(&mut MovementTraceCollector, &mut ProofGenerator), With<Player>>,
-    mut commands: Commands,
 ) {
     let _current_time = time.elapsed_secs_f64();
 
@@ -136,14 +134,6 @@ pub fn proof_generation_system(
         // Check for completed traces to prove and start async tasks
         while let Some(trace) = collector.get_next_trace_for_proving() {
             if trace.steps.len() > 1 {
-                // Check if this trace contains teleportation
-                let mut max_jump: f32 = 0.0;
-                for i in 1..trace.steps.len() {
-                    let distance = trace.steps[i-1].position.distance(trace.steps[i].position);
-                    max_jump = max_jump.max(distance);
-                }
-                
-                
                 // Start async proof generation task
                 let task_pool = AsyncComputeTaskPool::get();
                 let trace_clone = trace.clone();
@@ -175,7 +165,7 @@ pub fn proof_generation_system(
                 let _ = proof_gen.active_tasks.remove(i);
                 
                 match result.result {
-                    Ok((_proof_bytes, proof_size)) => {
+                    Ok((_proof_bytes, _proof_size)) => {
                         
                         // Update statistics
                         proof_gen.stats.total_proofs_generated += 1;

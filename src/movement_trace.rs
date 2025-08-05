@@ -8,7 +8,6 @@ pub struct MovementStep {
     pub velocity: Vec2,
     pub inputs: InputFlags,
     pub timestamp: f64,
-    pub delta_time: f32, // Actual frame delta time
 }
 
 #[derive(Clone, Debug, Default)]
@@ -103,7 +102,6 @@ impl MovementTraceCollector {
                 velocity,
                 inputs: inputs.clone(),
                 timestamp,
-                delta_time: 0.016, // Fixed for now
             };
             
             trace.add_step(step);
@@ -122,7 +120,6 @@ impl MovementTraceCollector {
                         velocity,
                         inputs,
                         timestamp,
-                        delta_time: 0.016,
                     };
                     new_trace.add_step(continuation_step);
                 }
@@ -132,18 +129,6 @@ impl MovementTraceCollector {
 
     pub fn complete_current_trace(&mut self) {
         if let Some(trace) = self.current_trace.take() {
-            // Check if this trace contains any large position jumps
-            let mut has_teleport = false;
-            for i in 1..trace.steps.len() {
-                let prev = &trace.steps[i-1];
-                let curr = &trace.steps[i];
-                let distance = prev.position.distance(curr.position);
-                if distance > 50.0 {  // Definitely a teleport
-                    has_teleport = true;
-                }
-            }
-            
-            
             self.completed_traces.push_back(trace);
             
             while self.completed_traces.len() > self.max_completed_traces {

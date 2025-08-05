@@ -135,8 +135,7 @@ fn update_input_state_after_modifications(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&Velocity, &mut LastInputState), With<Player>>,
 ) {
-    for (velocity, mut input_state) in &mut query {
-        let old_state = (input_state.left, input_state.right, input_state.up, input_state.down);
+    for (_velocity, mut input_state) in &mut query {
         
         // Match the EXACT same logic as player_input system
         // This ensures perfect synchronization with the actual velocity
@@ -219,7 +218,6 @@ fn speed_control_system(
     mut query: Query<&mut Velocity, With<Player>>,
 ) {
     for mut velocity in &mut query {
-        let original_velocity = (velocity.x, velocity.y);
         let mut speed_multiplier = 1;
         
         if keyboard_input.pressed(KeyCode::ShiftLeft) {
@@ -239,7 +237,6 @@ fn speed_control_system(
         }
         
         if speed_multiplier != 1 {
-            let pre_mult = (velocity.x, velocity.y);
             velocity.x *= speed_multiplier;
             velocity.y *= speed_multiplier;
         }

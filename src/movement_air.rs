@@ -161,53 +161,6 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
         let encoded_vel_x = ((vel_x_scaled + 1000) as u64) % 2000;
         let encoded_vel_y = ((vel_y_scaled + 1000) as u64) % 2000;
         
-        // Enhanced debug logging - show ALL rows and check for problematic values  
-        let is_interesting = i < 10 || (encoded_vel_x != 1000 || encoded_vel_y != 1000) || 
-                           pos_x_scaled.abs() > 10000000 || pos_y_scaled.abs() > 10000000 ||
-                           encoded_pos_x > 90000000 || encoded_pos_y > 90000000;
-                           
-        // Check for large position jumps that indicate teleportation
-        let has_large_jump = if i > 0 {
-            let prev_step = &trace.steps[i-1];
-            let curr_step = step;
-            let distance = ((curr_step.position.x - prev_step.position.x).powi(2) + 
-                           (curr_step.position.y - prev_step.position.y).powi(2)).sqrt();
-            distance > 50.0
-        } else { false };
-        
-        if is_interesting || has_large_jump {
-            let dt = step.delta_time;
-            let _expected_pos_change_x = step.velocity.x * dt * 1000.0;
-            let _expected_pos_change_y = step.velocity.y * dt * 1000.0;
-            
-            // Calculate what the constraint expects from inputs
-            let expected_vel_x_from_inputs = (if step.inputs.right { 1.0 } else { 0.0 } - if step.inputs.left { 1.0 } else { 0.0 }) * 200.0;
-            let expected_vel_y_from_inputs = (if step.inputs.up { 1.0 } else { 0.0 } - if step.inputs.down { 1.0 } else { 0.0 }) * 200.0;
-            let constraint_expected_vel_x = expected_vel_x_from_inputs + 1000.0; // With offset
-            let constraint_expected_vel_y = expected_vel_y_from_inputs + 1000.0; // With offset
-            
-            // If this is a transition row, show what previous row was
-            let transition_info = if i > 0 && i < trace.steps.len() - 1 {
-                let prev_step = &trace.steps[i-1];
-                format!(" [TRANSITION from vel={:.1} to vel={:.1}]", prev_step.velocity.x, step.velocity.x)
-            } else { String::new() };
-            
-            // Show constraint violation details
-            let vel_x_violation = if (encoded_vel_x as f32 - constraint_expected_vel_x as f32).abs() > 0.1 { "❌" } else { "✅" };
-            let vel_y_violation = if (encoded_vel_y as f32 - constraint_expected_vel_y as f32).abs() > 0.1 { "❌" } else { "✅" };
-            
-            // Field overflow warning - now supports much larger positions
-            let overflow_warning = if pos_x_scaled.abs() > 10000000 || pos_y_scaled.abs() > 10000000 {
-                " ⚠️ LARGE_POSITION"
-            } else if encoded_pos_x > 90000000 || encoded_pos_y > 90000000 {
-                " ⚠️ ENCODING_OVERFLOW"
-            } else { "" };
-            
-            let teleport_warning = if has_large_jump {
-                " 🚨 TELEPORT_IN_TRACE"
-            } else { "" };
-            
-        }
         
         rows[i] = MovementRow {
             position_x: F::from_u64(encoded_pos_x),
@@ -248,38 +201,6 @@ pub fn generate_movement_trace_matrix<F: PrimeField64>(
     matrix
 }
 
-// Helper function to generate a matrix that will intentionally fail constraint validation
-// This is used when we detect cheating during trace generation
-fn generate_cheat_detected_matrix<F: PrimeField64>(target_height: usize) -> RowMajorMatrix<F> {
-    
-    let mut matrix = RowMajorMatrix::new(
-        F::zero_vec(target_height * NUM_MOVEMENT_COLS),
-        NUM_MOVEMENT_COLS,
-    );
-
-    let (prefix, rows, suffix) = unsafe { matrix.values.align_to_mut::<MovementRow<F>>() };
-    assert!(prefix.is_empty(), "Alignment should match");
-    assert!(suffix.is_empty(), "Alignment should match");
-    assert_eq!(rows.len(), target_height);
-
-    // Generate a matrix that will definitely fail constraint validation
-    // Set invalid values that violate the velocity constraint
-    for i in 0..target_height {
-        rows[i] = MovementRow {
-            position_x: F::from_u64(50000000), // Encoded (0,0)
-            position_y: F::from_u64(50000000), // Encoded (0,0)
-            velocity_x: F::from_u64(9999),     // Invalid velocity that doesn't match inputs
-            velocity_y: F::from_u64(9999),     // Invalid velocity that doesn't match inputs
-            input_left: F::ZERO,
-            input_right: F::ZERO,
-            input_up: F::ZERO,
-            input_down: F::ZERO,
-            is_first_trace_after_reset: F::ZERO,
-        };
-    }
-
-    matrix
-}
 
 // Utility function to find next power of 2 for trace height
 pub fn next_power_of_2(n: usize) -> usize {
